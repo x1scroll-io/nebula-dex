@@ -98,6 +98,20 @@ pub fn increase_liquidity_v2<'a, 'b, 'c: 'info, 'info>(
     amount_1_max: u64,
     base_flag: Option<bool>,
 ) -> Result<()> {
+    // Nebula Shield (Layer 3): flag — do NOT block — suspected back-runs in V1.
+    // A liquidity add on the same slot as the pool's last swap is the signature
+    // of a JIT/back-run. Logged for monitoring; blocking is V2.
+    if let Ok(clock) = Clock::get() {
+        if let Ok(pool) = ctx.accounts.pool_state.load() {
+            if crate::instructions::nebula_shield::is_suspected_backrun(&*pool, clock.slot) {
+                msg!(
+                    "Nebula Shield: suspected back-run on increase_liquidity_v2 slot={}",
+                    clock.slot
+                );
+            }
+        }
+    }
+
     increase_liquidity(
         &ctx.accounts.nft_owner,
         &ctx.accounts.pool_state,

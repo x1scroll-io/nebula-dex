@@ -235,11 +235,13 @@ pub fn handler_init(
     min_sweep_amount: u64,
     max_sweep_amount: u64,
     cooldown_slots: u64,
+    manipulation_tax_bps: u16,
 ) -> Result<()> {
     let arb_config = &mut ctx.accounts.arb_config;
     let pool_key = ctx.accounts.pool.key();
 
     require!(treasury_share_bps <= 10_000, ErrorCode::ArithmeticOverflow);
+    require!(manipulation_tax_bps <= 10_000, ErrorCode::ArithmeticOverflow);
     require!(min_spread_bps > 0, ErrorCode::ZeroLiquidity);
     require!(min_sweep_amount < max_sweep_amount, ErrorCode::AmountBelowMin);
     require!(twap_window_seconds >= 15, ErrorCode::InsufficientOracleData);
@@ -258,7 +260,42 @@ pub fn handler_init(
     arb_config.total_profit_captured_b = 0;
     arb_config.enabled = true;
     arb_config.bump = ctx.bumps.arb_config;
+    // Honeypot manipulation tax: default to 9000 bps (90%) when caller passes 0.
+    arb_config.manipulation_tax_bps = if manipulation_tax_bps == 0 {
+        9000
+    } else {
+        manipulation_tax_bps
+    };
+    arb_config.manipulation_tax_collected_a = 0;
+    arb_config.manipulation_tax_collected_b = 0;
+    arb_config.manipulation_detections = 0;
 
+    Ok(())
+}
+
+// ── Update Manipulation Tax (admin only) ─────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct UpdateManipulationTax<'info> {
+    #[account(address = crate::admin::ID @ ErrorCode::NotApproved)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"arb_config", pool.key().as_ref()],
+        bump = arb_config.bump,
+    )]
+    pub arb_config: Account<'info, ArbConfig>,
+
+    pub pool: AccountLoader<'info, PoolState>,
+}
+
+pub fn handler_update_manipulation_tax(
+    ctx: Context<UpdateManipulationTax>,
+    new_tax_bps: u16,
+) -> Result<()> {
+    require!(new_tax_bps <= 10_000, ErrorCode::ArithmeticOverflow);
+    ctx.accounts.arb_config.manipulation_tax_bps = new_tax_bps;
     Ok(())
 }
 

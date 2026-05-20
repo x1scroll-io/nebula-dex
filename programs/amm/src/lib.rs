@@ -716,4 +716,217 @@ pub mod nebula_dex {
     ) -> Result<()> {
         instructions::close_limit_order(ctx)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Nebula Shield — Arb Sweep
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Initialize the per-pool ArbConfig that gates protocol arb sweeps.
+    /// PDA seeds: [b"arb_config", pool.key().as_ref()]
+    ///
+    /// `manipulation_tax_bps` controls the honeypot tax rate applied to swaps
+    /// flagged as same-slot manipulation (e.g. sandwich attempts). Pass 0 to
+    /// accept the default of 9000 bps (90%); max is 10_000 bps (100%).
+    pub fn nebula_init_arb_config(
+        ctx: Context<InitArbConfig>,
+        arb_authority: Pubkey,
+        treasury: Pubkey,
+        min_spread_bps: u16,
+        treasury_share_bps: u16,
+        twap_window_seconds: u32,
+        min_sweep_amount: u64,
+        max_sweep_amount: u64,
+        cooldown_slots: u64,
+        manipulation_tax_bps: u16,
+    ) -> Result<()> {
+        instructions::arb_sweep::handler_init(
+            ctx,
+            arb_authority,
+            treasury,
+            min_spread_bps,
+            treasury_share_bps,
+            twap_window_seconds,
+            min_sweep_amount,
+            max_sweep_amount,
+            cooldown_slots,
+            manipulation_tax_bps,
+        )
+    }
+
+    /// Toggle the arb sweep on/off for a pool.
+    pub fn nebula_toggle_arb(ctx: Context<ToggleArb>, enabled: bool) -> Result<()> {
+        instructions::arb_sweep::handler_toggle(ctx, enabled)
+    }
+
+    /// Update the honeypot manipulation-tax bps on a pool's ArbConfig. Admin only.
+    pub fn nebula_update_manipulation_tax(
+        ctx: Context<UpdateManipulationTax>,
+        new_tax_bps: u16,
+    ) -> Result<()> {
+        instructions::arb_sweep::handler_update_manipulation_tax(ctx, new_tax_bps)
+    }
+
+    /// Execute the standalone protocol arb sweep (price correction +
+    /// treasury share transfer).
+    pub fn nebula_arb_sweep(ctx: Context<ArbSweep>) -> Result<()> {
+        instructions::arb_sweep::handler(ctx)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Nebula Shield — JIT Protection
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Initialize the per-position JIT guard.
+    pub fn jit_init_guard(ctx: Context<InitJitGuard>, min_lock_slots: u16) -> Result<()> {
+        instructions::jit_protection::handler_init(ctx, min_lock_slots)
+    }
+
+    /// Validate that a liquidity removal is past the JIT lock window.
+    pub fn jit_check_remove(ctx: Context<CheckJitGuard>) -> Result<()> {
+        instructions::jit_protection::handler_check_remove(ctx)
+    }
+
+    /// Record an add-liquidity event for the guard's lock window.
+    pub fn jit_record_add(ctx: Context<RecordJitAdd>) -> Result<()> {
+        instructions::jit_protection::handler_record_add(ctx)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Perpetuals Market
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Initialize a perpetuals market for a (base, quote) mint pair.
+    pub fn perp_init_market(
+        ctx: Context<InitPerpMarket>,
+        market_id: u64,
+        max_leverage: u16,
+        liquidation_fee_bps: u16,
+        taker_fee_bps: u16,
+        maker_fee_bps: u16,
+        min_collateral: u64,
+        price_authority: Pubkey,
+    ) -> Result<()> {
+        instructions::perp_market::handler_init_market(
+            ctx,
+            market_id,
+            max_leverage,
+            liquidation_fee_bps,
+            taker_fee_bps,
+            maker_fee_bps,
+            min_collateral,
+            price_authority,
+        )
+    }
+
+    /// Open a perp position with a commitment-hashed payload (ZK private).
+    pub fn perp_open_position(
+        ctx: Context<PerpOpenPosition>,
+        collateral_amount: u64,
+        is_long: bool,
+        commitment: [u8; 32],
+    ) -> Result<()> {
+        instructions::perp_market::handler_open_position(
+            ctx,
+            collateral_amount,
+            is_long,
+            commitment,
+        )
+    }
+
+    /// Close a perp position, returning collateral computed off-chain from the
+    /// commitment reveal.
+    pub fn perp_close_position(
+        ctx: Context<PerpClosePosition>,
+        collateral_to_return: u64,
+    ) -> Result<()> {
+        instructions::perp_market::handler_close_position(ctx, collateral_to_return)
+    }
+
+    /// Update mark and index prices. Restricted to the market's price_authority.
+    pub fn perp_update_mark_price(
+        ctx: Context<UpdateMarkPrice>,
+        mark_price_x64: u128,
+        index_price_x64: u128,
+    ) -> Result<()> {
+        instructions::perp_market::handler_update_mark_price(
+            ctx,
+            mark_price_x64,
+            index_price_x64,
+        )
+    }
+
+    /// Recompute and apply the funding rate for the market. Permissionless;
+    /// gated by FUNDING_EPOCH_SLOTS.
+    pub fn perp_update_funding_rate(ctx: Context<UpdateFundingRate>) -> Result<()> {
+        instructions::perp_market::handler_update_funding_rate(ctx)
+    }
+
+    /// V1 liquidation hook: verify a commitment reveal and report whether
+    /// the position is liquidatable. Returns a LiquidationCheckResult that
+    /// Perp Shield uses for cascade detection.
+    pub fn perp_liquidation_check(
+        ctx: Context<LiquidationCheck>,
+        revealed_size: u64,
+        revealed_leverage_bps: u16,
+        revealed_entry_price_x64: u128,
+        revealed_liquidation_price_x64: u128,
+        revealed_salt: [u8; 16],
+    ) -> Result<LiquidationCheckResult> {
+        instructions::perp_market::handler_liquidation_check(
+            ctx,
+            revealed_size,
+            revealed_leverage_bps,
+            revealed_entry_price_x64,
+            revealed_liquidation_price_x64,
+            revealed_salt,
+        )
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Perp Shield — Circuit Breaker & Cascade Guard
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Initialize the PerpShield PDA for a market.
+    pub fn perp_shield_init(
+        ctx: Context<InitializeShield>,
+        epoch_slots: u64,
+        oi_imbalance_threshold_bps: u16,
+        liq_rate_threshold: u16,
+        price_velocity_threshold_bps: u16,
+    ) -> Result<()> {
+        instructions::perp_shield::initialize_shield(
+            ctx,
+            epoch_slots,
+            oi_imbalance_threshold_bps,
+            liq_rate_threshold,
+            price_velocity_threshold_bps,
+        )
+    }
+
+    /// Liquidation guard — runs cascade detection and trips or defers as needed.
+    /// Returns the ShieldAction it took.
+    pub fn perp_shield_liquidation_guard(
+        ctx: Context<PerpShieldLiquidationGuard>,
+        force_liquidate: bool,
+    ) -> Result<ShieldAction> {
+        instructions::perp_shield::perp_shield_liquidation_guard(ctx, force_liquidate)
+    }
+
+    /// Manually arm the circuit breaker. Authority-only.
+    pub fn perp_shield_trigger_breaker(
+        ctx: Context<TriggerCircuitBreaker>,
+        reason_flags: u8,
+        alert_index: u64,
+    ) -> Result<()> {
+        instructions::perp_shield::trigger_circuit_breaker(ctx, reason_flags, alert_index)
+    }
+
+    /// Reset (disarm) the circuit breaker. Authority-only; honors cooldown
+    /// unless force_reset is true.
+    pub fn perp_shield_reset_breaker(
+        ctx: Context<ResetCircuitBreaker>,
+        force_reset: bool,
+    ) -> Result<()> {
+        instructions::perp_shield::reset_circuit_breaker(ctx, force_reset)
+    }
 }

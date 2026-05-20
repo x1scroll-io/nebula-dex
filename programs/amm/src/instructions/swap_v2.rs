@@ -84,7 +84,7 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
 
     let block_timestamp = solana_program::clock::Clock::get()?.unix_timestamp as u64;
 
-    let swap_result: SwapInternalResult;
+    let mut swap_result: SwapInternalResult;
     let zero_for_one;
     let swap_price_before;
 
@@ -102,10 +102,14 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
     };
 
     {
-        swap_price_before = ctx.pool_state.load()?.sqrt_price_x64;
         let pool_state = &mut ctx.pool_state.load_mut()?;
         zero_for_one = ctx.input_vault.mint == pool_state.token_mint_0;
 
+        // Nebula Shield (Layer 3) reuses pool.open_time as a slot tracker
+        // for back-run detection. The original timestamp gate is disabled
+        // upstream (see PoolState.open_time comment); the value here is a
+        // slot, which is always smaller than the unix timestamp so the
+        // require_gt assertion remains satisfied.
         require_gt!(block_timestamp, pool_state.open_time);
 
         require!(
@@ -120,12 +124,23 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
         );
 
         let mut tickarray_bitmap_extension = None;
+        let mut arb_config_account_info: Option<&AccountInfo<'info>> = None;
         let tick_array_states = &mut VecDeque::new();
 
-        let tick_array_bitmap_extension_key = TickArrayBitmapExtension::key(pool_state.key());
+        let pool_key = ctx.pool_state.key();
+        let tick_array_bitmap_extension_key = TickArrayBitmapExtension::key(pool_key);
+        let (arb_config_pda, _) = Pubkey::find_program_address(
+            &[b"arb_config", pool_key.as_ref()],
+            &crate::ID,
+        );
+
         for account_info in remaining_accounts.into_iter() {
             if account_info.key().eq(&tick_array_bitmap_extension_key) {
                 tickarray_bitmap_extension = Some(account_info);
+                continue;
+            }
+            if account_info.key().eq(&arb_config_pda) {
+                arb_config_account_info = Some(account_info);
                 continue;
             }
             if account_info.data_len() != TickArrayState::LEN {
@@ -134,13 +149,56 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
             tick_array_states.push_back(AccountLoad::load_data_mut(account_info)?);
         }
 
+        // ── Nebula Shield: Layer 1 pre-swap arb sweep ──
+        // Best-effort: never blocks swap. Mutations to pool.sqrt_price happen
+        // before swap_price_before is captured below so the post-swap
+        // monotonicity check remains valid.
+        {
+            let observation = ctx.observation_state.load()?;
+            crate::instructions::nebula_shield::try_pre_swap_shield(
+                pool_state,
+                &*observation,
+                arb_config_account_info,
+                pool_key,
+                block_timestamp as u32,
+            );
+        }
+
+        // ── Nebula Shield: Layer 2 honeypot manipulation tax ──
+        // Runs only for is_base_input swaps: detects same-slot manipulation
+        // against a short TWAP, routes a configurable share of the input
+        // into pool.protocol_fees (the same field collect_protocol_fee drains
+        // to the TiPy treasury), and reduces the amount handed to
+        // swap_internal so the attacker pays full input for a much smaller
+        // effective swap.
+        let manipulation_tax_amount: u64 = if is_base_input {
+            let observation = ctx.observation_state.load()?;
+            crate::instructions::nebula_shield::try_apply_manipulation_tax(
+                pool_state,
+                &*observation,
+                arb_config_account_info,
+                pool_key,
+                block_timestamp as u32,
+                amount_calculate_specified,
+                zero_for_one,
+            )
+        } else {
+            0
+        };
+        let amount_for_swap = amount_calculate_specified.saturating_sub(manipulation_tax_amount);
+
+        // Capture sqrt price AFTER any shield correction so the post-swap
+        // monotonicity check (require_gte! below) is consistent with swap
+        // direction.
+        swap_price_before = pool_state.sqrt_price_x64;
+
         swap_result = swap_internal(
             &ctx.amm_config,
             pool_state,
             tick_array_states,
             &mut ctx.observation_state.load_mut()?,
             tickarray_bitmap_extension,
-            amount_calculate_specified,
+            amount_for_swap,
             if sqrt_price_limit_x64 == 0 {
                 if zero_for_one {
                     tick_math::MIN_SQRT_PRICE_X64 + 1
@@ -155,6 +213,23 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
             oracle::block_timestamp(),
         )?;
 
+        // Re-attribute the manipulation tax to the input side of swap_result
+        // so the downstream transfer accounting and the require_eq! invariant
+        // on the user's deposit observe the full amount the user committed.
+        // The vault receives the full deposit; the residual sits in
+        // pool.protocol_fees on the input-token side.
+        if manipulation_tax_amount > 0 {
+            if zero_for_one {
+                swap_result.amount_0 = swap_result
+                    .amount_0
+                    .saturating_add(manipulation_tax_amount);
+            } else {
+                swap_result.amount_1 = swap_result
+                    .amount_1
+                    .saturating_add(manipulation_tax_amount);
+            }
+        }
+
         #[cfg(feature = "enable-log")]
         msg!(
             "exact_swap_internal, is_base_input:{}, amount_0: {}, amount_1: {}",
@@ -166,6 +241,12 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
             swap_result.amount_0 != 0 && swap_result.amount_1 != 0,
             ErrorCode::TooSmallInputOrOutputAmount
         );
+
+        // ── Nebula Shield: Layer 3 — record this swap's slot on the pool
+        // so any same-slot liquidity add gets flagged as a suspected back-run.
+        if let Ok(clock) = Clock::get() {
+            crate::instructions::nebula_shield::record_swap_slot(&mut **pool_state, clock.slot);
+        }
     }
     let (token_account_0, token_account_1, vault_0, vault_1, vault_0_mint, vault_1_mint) =
         if zero_for_one {

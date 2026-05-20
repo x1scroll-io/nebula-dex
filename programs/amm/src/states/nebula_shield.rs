@@ -40,11 +40,20 @@ pub struct ArbConfig {
     pub enabled: bool,
     /// PDA bump
     pub bump: u8,
+    /// Tax rate applied when same-slot manipulation is detected (bps, default 9000 = 90%)
+    pub manipulation_tax_bps: u16,
+    /// Cumulative manipulation tax captured in token A
+    pub manipulation_tax_collected_a: u64,
+    /// Cumulative manipulation tax captured in token B
+    pub manipulation_tax_collected_b: u64,
+    /// Count of times manipulation was detected and taxed
+    pub manipulation_detections: u64,
 }
 
 impl ArbConfig {
     /// Space: discriminator(8) + 3*Pubkey(96) + u16+u16(4) + u32(4) + 6*u64(48) + bool(1) + u8(1)
-    pub const LEN: usize = 8 + 96 + 4 + 4 + 48 + 1 + 1;
+    ///        + manipulation: u16(2) + 3*u64(24)
+    pub const LEN: usize = 8 + 96 + 4 + 4 + 48 + 1 + 1 + 2 + 24;
 }
 
 // ── JitGuard ──────────────────────────────────────────────────────────────────

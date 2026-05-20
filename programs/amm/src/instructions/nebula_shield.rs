@@ -152,20 +152,26 @@ pub fn pre_swap_arb_check(
 
 // ── Layer 2: Same-Slot Manipulation Detection ─────────────────────────────────
 
+/// Detect same-slot manipulation. Returns the tax bps (>0) to apply when
+/// manipulation is detected, or 0 when not. Honeypot behavior: never blocks
+/// the swap — the protocol lets it execute but taxes it via the returned bps.
+/// When manipulation is detected, the detections counter on the supplied
+/// arb_config is incremented.
 pub fn detect_same_slot_manipulation(
     pool: &PoolState,
     oracle: &ObservationState,
+    arb_config: &mut ArbConfig,
     current_timestamp: u32,
     manipulation_threshold_bps: u16,
-) -> bool {
+) -> u16 {
     let recent_twap = match observe_twap(oracle, 5, current_timestamp) {
         Some(t) => t,
-        None => return false,
+        None => return 0,
     };
 
     let twap_sqrt = match tick_math::get_sqrt_price_at_tick(recent_twap) {
         Ok(p) => p,
-        Err(_) => return false,
+        Err(_) => return 0,
     };
 
     let spot = pool.sqrt_price_x64;
@@ -181,7 +187,13 @@ pub fn detect_same_slot_manipulation(
             .unwrap_or(0)
     };
 
-    deviation_bps > manipulation_threshold_bps as u128
+    if deviation_bps > manipulation_threshold_bps as u128 {
+        arb_config.manipulation_detections =
+            arb_config.manipulation_detections.saturating_add(1);
+        arb_config.manipulation_tax_bps
+    } else {
+        0
+    }
 }
 
 // ── Layer 3: Post-Swap Back-Run Lock ─────────────────────────────────────────
@@ -241,6 +253,173 @@ fn compute_inline_arb(sqrt_price: u128, liquidity: u128, amount: u64, a_to_b: bo
     }
 }
 
+// ── Swap-Path Integration Wrapper ────────────────────────────────────────────
+//
+// Best-effort hook called from swap_v2.rs before swap math runs. If an
+// ArbConfig PDA for this pool is supplied in remaining_accounts, Layer 1
+// (pre-swap arb sweep) executes. Otherwise the hook is a no-op. All errors
+// are swallowed and logged so the shield never blocks a swap in V1.
+
+use core::cell::RefMut;
+
+pub fn try_pre_swap_shield<'info>(
+    pool_state: &mut RefMut<PoolState>,
+    observation: &ObservationState,
+    arb_config_ai: Option<&'info AccountInfo<'info>>,
+    pool_key: Pubkey,
+    block_timestamp: u32,
+) {
+    // Layer 1: pre-swap arb sweep — only if ArbConfig PDA is supplied
+    let arb_ai = match arb_config_ai {
+        Some(ai) => ai,
+        None => return,
+    };
+
+    let (expected_pda, _) = Pubkey::find_program_address(
+        &[b"arb_config", pool_key.as_ref()],
+        &crate::ID,
+    );
+    if arb_ai.key() != expected_pda {
+        msg!("Nebula Shield: arb_config PDA mismatch, skipping sweep");
+        return;
+    }
+    if arb_ai.owner != &crate::ID {
+        msg!("Nebula Shield: arb_config owner mismatch, skipping sweep");
+        return;
+    }
+
+    let mut arb_config: Account<ArbConfig> = match Account::try_from(arb_ai) {
+        Ok(a) => a,
+        Err(_) => {
+            msg!("Nebula Shield: arb_config deserialize failed, skipping sweep");
+            return;
+        }
+    };
+
+    let clock = match Clock::get() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let result = pre_swap_arb_check(
+        &mut **pool_state,
+        &mut arb_config,
+        observation,
+        clock.slot,
+        block_timestamp,
+    );
+
+    match result {
+        Ok((swept, a_to_b, profit)) => {
+            if swept {
+                msg!(
+                    "Nebula Shield: pre-swap sweep executed a_to_b={} profit={}",
+                    a_to_b,
+                    profit
+                );
+            }
+        }
+        Err(e) => {
+            msg!("Nebula Shield: pre-swap sweep error code={:?}", e);
+            return;
+        }
+    }
+
+    if let Err(e) = arb_config.exit(&crate::ID) {
+        msg!("Nebula Shield: arb_config exit error code={:?}", e);
+    }
+}
+
+// ── Honeypot: Manipulation Tax Application ───────────────────────────────────
+//
+// Best-effort hook called from swap_v2.rs after try_pre_swap_shield and before
+// swap_internal. If an ArbConfig PDA is supplied and same-slot manipulation is
+// detected, a tax is charged on the swap input: routed into the pool's
+// protocol_fees on the input-token side (same path collect_protocol_fee drains
+// to the TiPy treasury). Returns the tax amount that must be removed from the
+// amount handed to swap_internal. Never blocks the swap.
+
+pub fn try_apply_manipulation_tax<'info>(
+    pool_state: &mut RefMut<PoolState>,
+    observation: &ObservationState,
+    arb_config_ai: Option<&'info AccountInfo<'info>>,
+    pool_key: Pubkey,
+    block_timestamp: u32,
+    swap_amount: u64,
+    zero_for_one: bool,
+) -> u64 {
+    let arb_ai = match arb_config_ai {
+        Some(ai) => ai,
+        None => return 0,
+    };
+
+    let (expected_pda, _) =
+        Pubkey::find_program_address(&[b"arb_config", pool_key.as_ref()], &crate::ID);
+    if arb_ai.key() != expected_pda || arb_ai.owner != &crate::ID {
+        return 0;
+    }
+
+    let mut arb_config: Account<ArbConfig> = match Account::try_from(arb_ai) {
+        Ok(a) => a,
+        Err(_) => return 0,
+    };
+
+    // Manipulation deviation threshold: 5% sqrt-price drift vs 5s TWAP.
+    const MANIPULATION_THRESHOLD_BPS: u16 = 500;
+    let tax_bps = detect_same_slot_manipulation(
+        &*pool_state,
+        observation,
+        &mut arb_config,
+        block_timestamp,
+        MANIPULATION_THRESHOLD_BPS,
+    );
+
+    if tax_bps == 0 || tax_bps > 10_000 {
+        let _ = arb_config.exit(&crate::ID);
+        return 0;
+    }
+
+    let tax_amount = ((swap_amount as u128) * (tax_bps as u128) / 10_000) as u64;
+    // Refuse to tax if it would consume the entire input or be zero — keeps
+    // swap_internal viable so the swap can still settle and the tax sticks.
+    if tax_amount == 0 || tax_amount >= swap_amount {
+        let _ = arb_config.exit(&crate::ID);
+        return 0;
+    }
+
+    if zero_for_one {
+        pool_state.protocol_fees_token_0 = pool_state
+            .protocol_fees_token_0
+            .saturating_add(tax_amount);
+        arb_config.manipulation_tax_collected_a = arb_config
+            .manipulation_tax_collected_a
+            .saturating_add(tax_amount);
+    } else {
+        pool_state.protocol_fees_token_1 = pool_state
+            .protocol_fees_token_1
+            .saturating_add(tax_amount);
+        arb_config.manipulation_tax_collected_b = arb_config
+            .manipulation_tax_collected_b
+            .saturating_add(tax_amount);
+    }
+
+    let slot = Clock::get().map(|c| c.slot).unwrap_or(0);
+    emit!(ManipulationTaxEvent {
+        pool: arb_config.pool,
+        swap_amount,
+        tax_amount,
+        tax_bps,
+        slot,
+        a_to_b: zero_for_one,
+    });
+
+    if let Err(e) = arb_config.exit(&crate::ID) {
+        msg!("Nebula Shield: arb_config exit error code={:?}", e);
+    }
+
+    tax_amount
+}
+
 // ── Event ─────────────────────────────────────────────────────────────────────
 
 #[event]
@@ -251,4 +430,14 @@ pub struct NebulaShieldSweep {
     pub profit: u64,
     pub a_to_b: bool,
     pub slot: u64,
+}
+
+#[event]
+pub struct ManipulationTaxEvent {
+    pub pool: Pubkey,
+    pub swap_amount: u64,
+    pub tax_amount: u64,
+    pub tax_bps: u16,
+    pub slot: u64,
+    pub a_to_b: bool,
 }

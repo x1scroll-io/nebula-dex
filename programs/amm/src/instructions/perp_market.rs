@@ -82,7 +82,7 @@ pub fn handler_init_market(
 // ── Open Position ────────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct OpenPosition<'info> {
+pub struct PerpOpenPosition<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
@@ -111,7 +111,7 @@ pub struct OpenPosition<'info> {
 }
 
 pub fn handler_open_position(
-    ctx: Context<OpenPosition>,
+    ctx: Context<PerpOpenPosition>,
     collateral_amount: u64,
     is_long: bool,
     commitment: [u8; 32],  // SHA256(size || leverage || entry_price || liq_price || salt)
@@ -180,7 +180,7 @@ pub fn handler_open_position(
 // ── Close Position ───────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
-pub struct ClosePosition<'info> {
+pub struct PerpClosePosition<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
@@ -213,7 +213,7 @@ pub struct ClosePosition<'info> {
 }
 
 pub fn handler_close_position(
-    ctx: Context<ClosePosition>,
+    ctx: Context<PerpClosePosition>,
     collateral_to_return: u64,  // Calculated off-chain from commitment reveal
 ) -> Result<()> {
     let clock = Clock::get()?;
