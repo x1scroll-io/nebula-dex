@@ -54,3 +54,19 @@ pub use limit_order::*;
 
 pub mod create_customizable_pool;
 pub use create_customizable_pool::*;
+
+// Nebula Shield modules (Theo @xxen_bot contribution)
+pub mod nebula_shield;
+pub use nebula_shield::*;
+
+pub mod jit_protection;
+pub use jit_protection::*;
+
+pub mod arb_sweep;
+pub use arb_sweep::*;
+
+pub mod perp_market;
+pub use perp_market::*;
+
+pub mod perp_shield;
+pub use perp_shield::*;

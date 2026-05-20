@@ -1,5 +1,8 @@
 pub mod config;
 pub mod dynamic_fee_config;
+pub mod nebula_shield;
+pub mod perp_market;
+pub mod perp_shield;
 pub mod limit_order;
 pub mod limit_order_nonce;
 pub mod operation_account;
@@ -25,3 +28,6 @@ pub use protocol_position::*;
 pub use support_mint_associated::*;
 pub use tick_array::*;
 pub use tickarray_bitmap_extension::*;
+pub use nebula_shield::*;
+pub use perp_shield::*;
+pub use perp_market::*;

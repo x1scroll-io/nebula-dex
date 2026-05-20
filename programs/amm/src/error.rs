@@ -119,4 +119,54 @@ pub enum ErrorCode {
     MissingMintAccount,
     #[msg("Token-2022 program is required but not provided")]
     MissingTokenProgram2022,
+
+    // --- Perp Market errors ---
+    #[msg("Perpetuals market is paused")]
+    MarketPaused,
+    #[msg("Insufficient collateral to open position")]
+    InsufficientCollateral,
+    #[msg("Leverage exceeds maximum allowed")]
+    MaxLeverageExceeded,
+    #[msg("Position already exists for this owner/market")]
+    PositionAlreadyExists,
+    #[msg("Invalid position commitment hash")]
+    InvalidCommitment,
+    #[msg("Perp market not found or uninitialized")]
+    MarketNotFound,
+    #[msg("Funding rate update too soon — epoch not elapsed")]
+    FundingRateStale,
+    #[msg("Insurance fund depleted — cannot cover liquidation shortfall")]
+    InsuranceFundDepleted,
+
+    // --- Nebula Shield errors ---
+    #[msg("JIT back-run detected: liquidity removal blocked")]
+    JitBackRunDetected,
+    #[msg("Protocol arb sweep is disabled for this pool")]
+    ArbDisabled,
+    #[msg("Arb sweep cooldown is still active")]
+    ArbCooldownActive,
+    #[msg("Spread is too small to sweep")]
+    SpreadTooSmall,
+    #[msg("No arb profit captured")]
+    NoArbProfit,
+    #[msg("Insufficient oracle observations for TWAP calculation")]
+    InsufficientOracleData,
+    #[msg("Invalid treasury account")]
+    InvalidTreasury,
+    #[msg("Arithmetic overflow")]
+    ArithmeticOverflow,
+    #[msg("Division by zero")]
+    DivisionByZero,
+    #[msg("Amount is below minimum threshold")]
+    AmountBelowMin,
+    #[msg("Not the authorized sender")]
+    NotSender,
+
+    // --- Perp Shield errors ---
+    #[msg("Cascade liquidation detected — circuit breaker armed")]
+    CascadeDetected,
+    #[msg("Circuit breaker is active — operation blocked pending cooldown")]
+    CircuitBreakerActive,
+    #[msg("Perp Shield not initialized for this market")]
+    ShieldNotInitialized,
 }

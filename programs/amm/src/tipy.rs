@@ -9,7 +9,7 @@ use anchor_lang::prelude::*;
 /// X1 TiPy treasury — receives the routed share of protocol fees.
 /// Mirrors the TREASURY constant in the tip-router program.
 pub const TIPY_TREASURY: Pubkey =
-    pubkey!("A1TRS3i2g62Zf6K4vybsW4JLx8wifqSoThyTQqXNaLDK");
+    pubkey!("TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu");
 
 /// TiPy tip-router program — for documentation / on-chain audit only.
 pub const TIPY_PROGRAM_ID: Pubkey =
@@ -20,6 +20,9 @@ pub const TIPY_ROUTE_BPS: u64 = 2000; // 20.00%
 
 /// Basis-point denominator.
 pub const TIPY_BPS_DENOM: u64 = 10_000;
+
+/// General fee denominator (alias for external integrations).
+pub const FEE_DENOMINATOR: u64 = 10_000;
 
 /// Split a raw protocol-fee amount into `(admin_share, tipy_share)`.
 /// `tipy_share` is `floor(amount * TIPY_ROUTE_BPS / 10_000)`.
