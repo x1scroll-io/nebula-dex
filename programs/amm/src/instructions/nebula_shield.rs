@@ -210,29 +210,63 @@ pub fn is_suspected_backrun(pool: &PoolState, current_slot: u64) -> bool {
 
 // ── TWAP Helper ───────────────────────────────────────────────────────────────
 
-/// Simple TWAP tick approximation from ObservationState.
-/// Returns the tick_cumulative delta over the window as an average tick.
+/// Proper tick-based TWAP from ObservationState.
+/// Returns average tick over the window using cumulative tick deltas.
+const MIN_OBSERVATIONS_FOR_TWAP: u16 = 2;
+
 fn observe_twap(oracle: &ObservationState, window_seconds: u32, current_timestamp: u32) -> Option<i32> {
     if oracle.observation_index == 0 {
         return None;
     }
+
+    // Require at least 2 observations for a valid TWAP
+    if oracle.observation_index < MIN_OBSERVATIONS_FOR_TWAP {
+        return None;
+    }
+
     let idx = oracle.observation_index as usize;
     let latest = &oracle.observations[idx.saturating_sub(1) % crate::states::oracle::OBSERVATION_NUM];
     if latest.block_timestamp == 0 {
         return None;
     }
+
     let elapsed = current_timestamp.saturating_sub(latest.block_timestamp);
+
+    // When elapsed == 0 or data is stale, return None — insufficient data for TWAP
     if elapsed == 0 || elapsed > window_seconds * 2 {
-        // Use current observation tick directly if very fresh
-        let avg_tick = if elapsed == 0 {
-            (latest.tick_cumulative) as i32
-        } else {
-            (latest.tick_cumulative / elapsed as i64) as i32
-        };
-        return Some(avg_tick.clamp(-443636, 443636));
+        return None;
     }
-    let avg_tick = (latest.tick_cumulative / elapsed.max(1) as i64) as i32;
+
+    // Proper tick-based TWAP: find observation from window_seconds ago
+    let target_timestamp = current_timestamp.saturating_sub(window_seconds);
+    let older_idx = find_observation_at_or_before(oracle, target_timestamp)?;
+    let older = &oracle.observations[older_idx];
+
+    let time_delta = latest.block_timestamp.saturating_sub(older.block_timestamp) as i64;
+    if time_delta == 0 {
+        return None;
+    }
+
+    // Tick TWAP = (tick_cumulative_latest - tick_cumulative_older) / time_delta
+    let tick_cumulative_delta = latest.tick_cumulative.wrapping_sub(older.tick_cumulative);
+    let avg_tick = (tick_cumulative_delta / time_delta) as i32;
+
     Some(avg_tick.clamp(-443636, 443636))
+}
+
+fn find_observation_at_or_before(oracle: &ObservationState, target_timestamp: u32) -> Option<usize> {
+    let current_idx = oracle.observation_index as usize;
+    let obs_num = crate::states::oracle::OBSERVATION_NUM;
+
+    for i in 0..obs_num {
+        let idx = (current_idx + obs_num - i) % obs_num;
+        if oracle.observations[idx].block_timestamp != 0
+            && oracle.observations[idx].block_timestamp <= target_timestamp
+        {
+            return Some(idx);
+        }
+    }
+    None
 }
 
 // ── Inline Arb Math ───────────────────────────────────────────────────────────
@@ -364,14 +398,15 @@ pub fn try_apply_manipulation_tax<'info>(
         Err(_) => return 0,
     };
 
-    // Manipulation deviation threshold: 5% sqrt-price drift vs 5s TWAP.
-    const MANIPULATION_THRESHOLD_BPS: u16 = 500;
+    // Manipulation deviation threshold — read from ArbConfig (admin-configurable).
+    // Falls back to 500 bps (5%) for older PDAs that predate the field.
+    let threshold_bps = arb_config.effective_manipulation_threshold_bps();
     let tax_bps = detect_same_slot_manipulation(
         &*pool_state,
         observation,
         &mut arb_config,
         block_timestamp,
-        MANIPULATION_THRESHOLD_BPS,
+        threshold_bps,
     );
 
     if tax_bps == 0 || tax_bps > 10_000 {
