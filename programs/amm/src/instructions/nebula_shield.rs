@@ -128,15 +128,12 @@ pub fn pre_swap_arb_check(
 
     arb_config.last_sweep_slot = current_slot;
 
-    let treasury_share = (profit as u128)
-        .saturating_mul(arb_config.treasury_share_bps as u128)
-        / 10_000;
-
-    if a_to_b {
-        pool.protocol_fees_token_1 = pool.protocol_fees_token_1.saturating_add(treasury_share as u64);
-    } else {
-        pool.protocol_fees_token_0 = pool.protocol_fees_token_0.saturating_add(treasury_share as u64);
-    }
+    // NOTE: The arb sweep corrects price only — no protocol_fees credit here.
+    // A price correction that credits protocol_fees without routing real tokens
+    // through the vault would create unbacked fee claims (LP drain on
+    // collect_protocol_fee). If profit extraction is desired, the sweep must
+    // execute an actual swap against the vault and route the treasury share
+    // through the normal fee path.
 
     emit!(NebulaShieldSweep {
         pool: arb_config.pool,
@@ -164,7 +161,7 @@ pub fn detect_same_slot_manipulation(
     current_timestamp: u32,
     manipulation_threshold_bps: u16,
 ) -> u16 {
-    let recent_twap = match observe_twap(oracle, 5, current_timestamp) {
+    let recent_twap = match observe_twap(oracle, 30, current_timestamp) {
         Some(t) => t,
         None => return 0,
     };
@@ -200,12 +197,12 @@ pub fn detect_same_slot_manipulation(
 
 /// Record swap slot on pool for post-swap JIT detection
 pub fn record_swap_slot(pool: &mut PoolState, current_slot: u64) {
-    pool.open_time = current_slot; // reuse open_time as slot tracker for JIT guard
+    pool.padding1[0] = current_slot; // reuse padding1 as slot tracker for JIT guard
 }
 
 /// Check if a liquidity operation is a suspected back-run
 pub fn is_suspected_backrun(pool: &PoolState, current_slot: u64) -> bool {
-    pool.open_time == current_slot
+    pool.padding1[0] == current_slot
 }
 
 // ── TWAP Helper ───────────────────────────────────────────────────────────────

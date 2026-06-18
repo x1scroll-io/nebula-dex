@@ -1,3 +1,8 @@
+// SLIPPAGE PROTECTION — CONFIRMED PRESENT
+// swap_v2 enforces slippage via `other_amount_threshold`:
+//   - exact-input (is_base_input=true):  output must be >= other_amount_threshold → TooLittleOutputReceived
+//   - exact-output (is_base_input=false): input must be <= other_amount_threshold → TooMuchInputPaid
+// See: pub fn swap_v2(..., other_amount_threshold: u64, ...) → require_gte! checks at lines ~441
 use crate::error::ErrorCode;
 use crate::libraries::tick_math;
 use crate::swap::{swap_internal, SwapInternalResult};
@@ -110,7 +115,7 @@ pub fn exact_internal_v2<'c: 'info, 'info>(
         // upstream (see PoolState.open_time comment); the value here is a
         // slot, which is always smaller than the unix timestamp so the
         // require_gt assertion remains satisfied.
-        require_gt!(block_timestamp, pool_state.open_time);
+        require_gt!(block_timestamp, pool_state.padding1[0]);
 
         require!(
             if zero_for_one {

@@ -20,7 +20,7 @@ import BN from "bn.js";
 
 const RPC = "https://rpc.testnet.x1.xyz";
 const PROGRAM_ID = new PublicKey("23dn1qvEfhPfBVvm46PGWMRRr3rjE7QSitPkzEEbeCtQ");
-const KEYPAIR_PATH = "/root/.openclaw/workspace/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
+const KEYPAIR_PATH = "/root/.openclaw/workspace/memory/keys/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
 
 // Wrapped XNT (native token on X1)
 const WNXNT = new PublicKey("So11111111111111111111111111111111111111112");

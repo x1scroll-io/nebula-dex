@@ -323,7 +323,7 @@ pub fn handler_toggle(ctx: Context<ToggleArb>, enabled: bool) -> Result<()> {
 
 // ── Math Helpers ─────────────────────────────────────────────────────────────
 
-fn get_twap_tick(oracle: &ObservationState, window_seconds: u32, current_timestamp: u32) -> Option<i32> {
+fn get_twap_tick(oracle: &ObservationState, _window_seconds: u32, current_timestamp: u32) -> Option<i32> {
     if oracle.observation_index == 0 {
         return None;
     }

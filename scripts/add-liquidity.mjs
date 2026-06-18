@@ -17,7 +17,7 @@ import fs from "fs";
 
 const RPC = "https://rpc.testnet.x1.xyz";
 const PROGRAM_ID = new PublicKey("23dn1qvEfhPfBVvm46PGWMRRr3rjE7QSitPkzEEbeCtQ");
-const KEYPAIR_PATH = "/root/.openclaw/workspace/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
+const KEYPAIR_PATH = "/root/.openclaw/workspace/memory/keys/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
 
 // From previous step
 const POOL_ID     = new PublicKey("E15UBYMftkvKfTGiuphngBUEfbJNvMs5Sit7aP6iRsCp");

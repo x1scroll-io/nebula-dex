@@ -23,7 +23,9 @@ pub struct InitPerpMarket<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    /// CHECK: Mint address used only as a PDA seed — ownership and data not validated here.
     pub base_mint: AccountInfo<'info>,
+    /// CHECK: Mint address used only as a PDA seed — ownership and data not validated here.
     pub quote_mint: AccountInfo<'info>,
 
     #[account(
@@ -392,7 +394,7 @@ pub fn handler_liquidation_check(
     // V2 placeholder: Full ZK proof bytes (ignored in V1, verified in V2)
     // zk_proof: Vec<u8>,
 ) -> Result<LiquidationCheckResult> {
-    let clock = Clock::get()?;
+    let _clock = Clock::get()?;
 
     let (commitment, collateral_amount, is_long) = {
         let position = ctx.accounts.position.load()?;

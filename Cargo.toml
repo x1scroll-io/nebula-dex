@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["programs/*"]
+members = [
+	"programs/drift","programs/*"]
 exclude = ["client"]
 
 [profile.test]

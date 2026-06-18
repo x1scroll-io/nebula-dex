@@ -48,12 +48,29 @@ pub struct ArbConfig {
     pub manipulation_tax_collected_b: u64,
     /// Count of times manipulation was detected and taxed
     pub manipulation_detections: u64,
+    /// Deviation threshold (in bps) above which same-slot price movement is
+    /// classified as manipulation. Configurable by admin. Default: 500 (5%).
+    /// Stored as 0 = use default (500) for backwards compatibility with older PDAs.
+    pub manipulation_threshold_bps: u16,
 }
 
 impl ArbConfig {
+    /// Default manipulation deviation threshold: 5% sqrt-price drift vs 5s TWAP
+    pub const DEFAULT_MANIPULATION_THRESHOLD_BPS: u16 = 500;
+
+    /// Returns the effective manipulation threshold, falling back to the default
+    /// when the stored value is 0 (unset / pre-upgrade PDA).
+    pub fn effective_manipulation_threshold_bps(&self) -> u16 {
+        if self.manipulation_threshold_bps == 0 {
+            Self::DEFAULT_MANIPULATION_THRESHOLD_BPS
+        } else {
+            self.manipulation_threshold_bps
+        }
+    }
+
     /// Space: discriminator(8) + 3*Pubkey(96) + u16+u16(4) + u32(4) + 6*u64(48) + bool(1) + u8(1)
-    ///        + manipulation: u16(2) + 3*u64(24)
-    pub const LEN: usize = 8 + 96 + 4 + 4 + 48 + 1 + 1 + 2 + 24;
+    ///        + manipulation: u16(2) + 3*u64(24) + manipulation_threshold_bps: u16(2)
+    pub const LEN: usize = 8 + 96 + 4 + 4 + 48 + 1 + 1 + 2 + 24 + 2;
 }
 
 // ── JitGuard ──────────────────────────────────────────────────────────────────

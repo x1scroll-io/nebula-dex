@@ -18,11 +18,11 @@ import fs from "fs";
 
 const RPC        = "https://rpc.testnet.x1.xyz";
 const PROGRAM_ID = new PublicKey("23dn1qvEfhPfBVvm46PGWMRRr3rjE7QSitPkzEEbeCtQ");
-const KEYPAIR_PATH = "/root/.openclaw/workspace/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
+const KEYPAIR_PATH = "/root/.openclaw/workspace/memory/keys/NBLAsmKbxKW9cwJy7cfAhWMY9HJSwMj87qRWy6E3YGY.json";
 
 // Existing pool state from create-pool step
-const POOL_ID    = new PublicKey("E15UBYMftkvKfTGiuphngBUEfbJNvMs5Sit7aP6iRsCp");
-const NUSDC_MINT = new PublicKey("XaPfbrpTsC1MiTyghZWg3bVbBYnz91DfdWTLVBtrUKe");
+const POOL_ID    = new PublicKey("DLisUiGfJR7Gmrv2QjUGGgQYHz97bsj7HqgdSFUJjNU1");
+const NUSDC_MINT = new PublicKey("Gax1LXZK1GXwHKm2pWuZ4eKxeR7YPpA9DV64FdPofMFo");
 const TOKEN0     = NATIVE_MINT; // WXNT = So111...112
 const TOKEN1     = NUSDC_MINT;
 
@@ -90,10 +90,10 @@ async function main() {
   // Current price ~0.80, current tick ~-2231
   // TICK_ARRAY_SIZE=60, tickSpacing=60 → each array covers 3600 ticks
   // Position: -3540 to 3540 (spans two tick arrays: -3600 to 0)
-  const TICK_LOWER = -3540;
-  const TICK_UPPER =  3540;
-  const taLowerStart = -3600; // tick array containing -3540
-  const taUpperStart = 0;     // tick array containing 3540
+  const TICK_LOWER = -3540; // lower tick, brackets tickCurrent=-2161, array start=-3600
+  const TICK_UPPER = -60;   // upper tick, brackets tickCurrent=-2161, array start=-3600
+  const taLowerStart = -3600; // array containing tick -3540 and -60
+  const taUpperStart = -3600; // same array as lower
   console.log("Tick range:", TICK_LOWER, "to", TICK_UPPER, "(around current price 0.80)");
   console.log("TickArray starts:", taLowerStart, "/", taUpperStart);
 
@@ -157,15 +157,15 @@ async function main() {
 
   const openPosData = Buffer.concat([
     disc("open_position"),
-    u128LE(LIQUIDITY),
-    u64LE(AMOUNT_0_MAX),
-    u64LE(AMOUNT_1_MAX),
     i32LE(TICK_LOWER),
     i32LE(TICK_UPPER),
     i32LE(taLowerStart),
     i32LE(taUpperStart),
-    bool1(false),   // with_metadata = false
-    optBool(null),  // base_flag = None
+    u128LE(LIQUIDITY),
+    u64LE(AMOUNT_0_MAX),
+    u64LE(AMOUNT_1_MAX),
+    bool1(false),
+    optBool(null),
   ]);
 
   console.log("\nOpening position...");
