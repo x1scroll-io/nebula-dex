@@ -5,3 +5,5 @@ test-ledger/
 *.log
 # program keypairs — never commit
 **/*-keypair.json
+client_config.ini
+client_config.ini.bak
